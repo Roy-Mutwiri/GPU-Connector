@@ -26,5 +26,7 @@ def digest(path):
 manifest = {"core_sha256": digest(core), "libraries": {
     path.relative_to(library).as_posix(): digest(path)
     for path in library.rglob("*") if path.is_file()}}
+manifest["library_sizes"] = {path.relative_to(library).as_posix(): path.stat().st_size
+                            for path in library.rglob("*") if path.is_file()}
 (output / "setup-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 print(f"Verified core: {core.stat().st_size:,} bytes; runtime files: {len(manifest['libraries'])}")

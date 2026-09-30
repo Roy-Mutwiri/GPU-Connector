@@ -3,9 +3,18 @@
 **[Download GPU Link for Windows](https://github.com/Roy-Mutwiri/GPU-Connector/releases/latest)**
 
 Download **GPU-Link-Setup.exe** from **Releases** and run it. The ~120 MB installer contains the app and
-downloads the pinned CUDA runtime (~2.9 GB) from PyTorch's official server, verifying SHA-256 and every installed library.
-Allow at least 9 GiB free during installation. Choose an empty folder; existing files are never overwritten.
-Then click **Launch GPU Link**. Internet is needed for setup only; the installed app works offline over your LAN.
+automatically checks existing GPU Link, CUDA and Python/PyTorch environments before downloading anything.
+Matching runtime files are reused after SHA-256 verification. Only missing/different files are fetched from
+PyTorch's official server using bounded HTTP ranges; a complete matching local runtime needs **no download**.
+Use **Check requirements** to inspect the plan without installing; use the optional existing-runtime folder
+picker for a custom Python environment, CUDA directory, or another GPU Link folder.
+The check targets the tested **PyTorch 2.11.0 / CUDA 12.8** requirements, rather than automatically installing
+the newest versions. A CUDA Toolkit alone may not contain PyTorch or cuDNN, and newer DLLs are not assumed ABI-compatible.
+Your system CUDA/PyTorch installations are never changed. The NVIDIA driver is checked separately; driver updates
+are not installed automatically. **RUN FULL TEST** verifies actual GPU compatibility after installation.
+Allow at least 5 GiB free for a new installation. A matching existing GPU Link installation is verified and left
+unchanged; missing runtime files in that installation can be repaired. Unrelated or different app folders are not overwritten.
+Then click **Launch GPU Link**. Internet is needed only to obtain missing requirements; runtime LAN use stays offline.
 No separate Python installation is needed. GitHub's automatic **Source code** downloads are for developers.
 For offline copying, the complete local `dist/GPU-Link` folder remains available; keep `_internal` beside the EXE.
 
@@ -106,8 +115,11 @@ CUDA libraries make the distribution large; reliability takes priority over a si
 Dependency versions resolved for the delivered build are recorded in `requirements-lock.txt`.
 
 After the portable build, `powershell -NoProfile -ExecutionPolicy Bypass -File .\build-setup.ps1`
-creates `release/GPU-Link-Setup.exe`. The installer retrieves only the official pinned PyTorch wheel
-and installs its 37 runtime library files, checking each against the tested portable distribution.
+creates `release/GPU-Link-Setup.exe`. The installer verifies its 37 runtime library files against the tested
+portable distribution. Local matches are copied privately; missing files use selective ZIP reads from the official
+PyTorch wheel, and every resulting library must match its pinned SHA-256. An existing verified cached wheel is
+also reused. The standalone `scripts/verify_setup_reuse.py` checks offline reuse, a no-change repeat installation,
+and a real selective download from PyTorch. It requires a locally installed matching runtime for its offline case.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q -m "not gpu"  # CPU-safe unit/integration tests
