@@ -1,0 +1,54 @@
+name: Build Windows download
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - name: Install pinned dependencies
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --no-cache-dir -r requirements-lock.txt --extra-index-url https://download.pytorch.org/whl/cu128
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test and build Windows executable
+        shell: pwsh
+        run: .\build.ps1 -SkipInstall
+      - name: Check packaged GUI
+        shell: pwsh
+        run: |
+          $check = Start-Process -FilePath '.\dist\GPU-Link\GPU-Link.exe' -ArgumentList '--gui-smoke' -PassThru -Wait -WindowStyle Hidden
+          if ($check.ExitCode -ne 0) { throw 'Packaged GUI failed' }
+          if (-not (Test-Path artifacts/packaged-dashboard.png)) { throw 'GUI screenshot missing' }
+      - name: Release build disk space
+        shell: pwsh
+        run: |
+          $workspacePath = (Resolve-Path '.').Path
+          $environmentPath = (Resolve-Path '.venv').Path
+          if ($environmentPath -ne (Join-Path $workspacePath '.venv')) { throw 'Unexpected environment path' }
+          Remove-Item -LiteralPath $environmentPath -Recurse -Force
+      - name: Package and verify every file
+        shell: pwsh
+        run: |
+          python scripts/package_release.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/split_release.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload verified packages to draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create windows-ci-v1.0.0 --target '${{ github.sha }}' --title 'GPU Link 1.0.0 - Windows x64' --notes 'Windows portable build. Download both part ZIPs and extract into the same folder. Run GPU-Link/GPU-Link.exe. CUDA hardware must be checked on your own PCs.' --draft
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packages = Get-ChildItem release/*-part*.zip
+          gh release upload windows-ci-v1.0.0 $packages.FullName release/SHA256SUMS.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
