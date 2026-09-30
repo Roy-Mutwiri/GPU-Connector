@@ -1,0 +1,10 @@
+PySide6>=6.8,<7
+numpy>=2,<3
+nvidia-ml-py>=12
+cryptography>=44
+psutil>=6
+pytest>=8
+ruff>=0.11
+pyinstaller>=6.12
+pyinstaller-hooks-contrib>=2025.1
+# Install CUDA PyTorch separately using build.ps1 (official cu128 wheel index).
