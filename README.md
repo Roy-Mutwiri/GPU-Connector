@@ -2,7 +2,8 @@
 
 **[Download GPU Link for Windows](https://github.com/Roy-Mutwiri/GPU-Connector/releases/latest)**
 
-Download the Windows package from **Releases**, extract it completely, and run `GPU-Link/GPU-Link.exe`.
+Download **both Windows ZIPs** from **Releases**, extract both into **the same destination folder**,
+and run `GPU-Link/GPU-Link.exe`. Both parts are required; see the release page for exact extraction steps.
 Keep the `_internal` folder beside the EXE. GitHub's automatic **Source code** downloads do not contain the application runtime.
 
 Windows desktop controller and authenticated LAN CUDA worker. Both roles use the same executable.
