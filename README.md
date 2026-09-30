@@ -2,9 +2,12 @@
 
 **[Download GPU Link for Windows](https://github.com/Roy-Mutwiri/GPU-Connector/releases/latest)**
 
-Download **both Windows ZIPs** from **Releases**, extract both into **the same destination folder**,
-and run `GPU-Link/GPU-Link.exe`. Both parts are required; see the release page for exact extraction steps.
-Keep the `_internal` folder beside the EXE. GitHub's automatic **Source code** downloads do not contain the application runtime.
+Download **GPU-Link-Setup.exe** from **Releases** and run it. The ~120 MB installer contains the app and
+downloads the pinned CUDA runtime (~2.9 GB) from PyTorch's official server, verifying SHA-256 and every installed library.
+Allow at least 9 GiB free during installation. Choose an empty folder; existing files are never overwritten.
+Then click **Launch GPU Link**. Internet is needed for setup only; the installed app works offline over your LAN.
+No separate Python installation is needed. GitHub's automatic **Source code** downloads are for developers.
+For offline copying, the complete local `dist/GPU-Link` folder remains available; keep `_internal` beside the EXE.
 
 Windows desktop controller and authenticated LAN CUDA worker. Both roles use the same executable.
 The remote GPU stays in its own PC. Remote VRAM is **not unified CUDA memory**.
@@ -101,6 +104,10 @@ runs pytest, Ruff and compileall, then PyInstaller in one-directory mode. Output
 `dist/GPU-Link/GPU-Link.exe`. Existing prepared environments can use `build.ps1 -SkipInstall`.
 CUDA libraries make the distribution large; reliability takes priority over a single-file executable.
 Dependency versions resolved for the delivered build are recorded in `requirements-lock.txt`.
+
+After the portable build, `powershell -NoProfile -ExecutionPolicy Bypass -File .\build-setup.ps1`
+creates `release/GPU-Link-Setup.exe`. The installer retrieves only the official pinned PyTorch wheel
+and installs its 37 runtime library files, checking each against the tested portable distribution.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q -m "not gpu"  # CPU-safe unit/integration tests
