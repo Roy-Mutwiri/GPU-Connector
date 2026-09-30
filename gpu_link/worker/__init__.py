@@ -13,19 +13,21 @@ from gpu_link.protocol import (OPERATIONS, VERSION, MeteredSocket, binary_size, 
                                send_buffer, send_json)
 from gpu_link.security import Identity, lan_address, token_matches
 from gpu_link.worker.jobs import Jobs
+from gpu_link.worker.resources import Resources
 
 LOG = logging.getLogger("gpu_link")
 
 
 class Worker:
-    def __init__(self, host, port=8765, identity=None, gpu=None, discovery=True, allow_loopback=False):
+    def __init__(self, host, port=8765, identity=None, gpu=None, discovery=True, allow_loopback=False, cpu_threads=None, ram_mib=256):
         if not lan_address(host, allow_loopback):
             raise ValueError("Select a private LAN IPv4 interface")
         self.host, self.port = host, port
         self.allow_loopback = allow_loopback
         self.identity = identity or Identity()
         self.gpu = gpu or GPU()
-        self.jobs = Jobs(self.gpu)
+        self.resources = Resources(cpu_threads, ram_mib)
+        self.jobs = Jobs(self.gpu, self.resources)
         self.discovery_enabled = discovery
         self.responder = None
         self.stopped = threading.Event()
@@ -136,13 +138,14 @@ class Worker:
             return {"uptime": time.monotonic() - self.started, **self.jobs.summary()}
         if op == "get_system_info":
             return {"hostname": socket.gethostname(), "os": platform.platform(), "python": platform.python_version(),
-                    "ip": self.host, "port": self.port, "protocol": VERSION}
+                    "ip": self.host, "port": self.port, "protocol": VERSION,
+                    "capabilities": sorted(OPERATIONS)}
         if op == "get_gpu_info":
             return {**self.info, **self.gpu.telemetry()}
         if op == "get_telemetry":
-            return {**self.gpu.telemetry(), **self.jobs.summary(), "network_bytes": self.network_bytes,
+            return {**self.gpu.telemetry(), **self.jobs.summary(), "resources": self.resources.telemetry(), "network_bytes": self.network_bytes,
                     "uptime": time.monotonic() - self.started}
-        if op in ("run_compute_test", "run_memory_test", "run_stress_test"):
+        if op in ("run_compute_test", "run_memory_test", "run_stress_test", "run_cpu_compute", "run_ram_test"):
             return self.jobs.submit(op, args)
         if op == "get_job":
             return self.jobs.get(args.get("job_id"))

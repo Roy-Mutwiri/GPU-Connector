@@ -164,3 +164,37 @@ changes are made until the local operator requests setup and approves UAC.
 References: [official PyTorch CUDA installation](https://pytorch.org/get-started/locally/),
 [PyTorch versioned wheels](https://pytorch.org/get-started/previous-versions/),
 [PyInstaller distribution specifications](https://pyinstaller.org/en/stable/spec-files.html).
+
+
+## CPU and system resources (1.1)
+
+Update **both PCs** to 1.1 to use the Resources page. Leave Proton VPN and network settings unchanged
+if the existing connection works. Close the older GPU Link before starting the new version.
+Setup defaults to a separate **GPU Link 1.1** folder and reuses verified CUDA files from the old
+standard installation. Select your old installation as the optional runtime folder if it is elsewhere.
+This preserves the earlier app; launch the executable from the new folder.
+
+On the worker Connection page, choose the allowed **CPU job threads** and **RAM test allocation limit**,
+then click START SERVICE. Defaults are half the logical processors and 256 MiB. CPU jobs may request
+up to the worker's logical processor count; this is a thread count, not a guaranteed CPU percentage.
+RAM test buffers are limited to 16..4096 MiB and must leave at least 1 GiB and half the available RAM free.
+The limit covers explicitly allocated test buffers, not the Python/Qt/CUDA process or OS total memory.
+
+On the connected controller, open **Resources**:
+
+- Live CPU utilization, processor inventory, used/available system RAM, and disk capacity.
+- **VERIFY CPU COMPUTE** runs a deterministic parallel PBKDF2-SHA256 challenge on the worker CPU.
+  Native hash workers release the Python GIL. The controller independently checks every result.
+- **TEST SYSTEM RAM** writes and reads two patterns in a bounded worker buffer. Its result is
+  worker-reported; it is not a complete physical RAM diagnostic or an independent attestation.
+- STOP cancels at bounded computation or memory chunk boundaries. Controller lease and job deadlines apply.
+
+The protocol adds `run_cpu_compute(seed, threads)` and `run_ram_test(mib)` with capability discovery.
+One CPU, RAM or GPU job runs at a time. CPU-only workers can run these new jobs without CUDA;
+CUDA tests still fail explicitly if CUDA is unavailable. Older workers remain usable for GPU tests,
+but new resource jobs explain that the worker needs updating.
+
+This release establishes CPU/RAM job execution and resource monitoring. It does **not** accelerate
+arbitrary existing applications, implement model inference, pool RAM/VRAM, expose remote disks,
+or execute arbitrary uploaded programs. Disk information is read-only inventory. Add specific
+allow-listed inference/data-processing handlers to use these resources for application workloads.

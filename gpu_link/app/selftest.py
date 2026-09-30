@@ -6,6 +6,7 @@ import tempfile
 import threading
 from pathlib import Path
 
+from gpu_link.benchmarks.cpu import verify_cpu
 from gpu_link.controller import Client
 from gpu_link.controller.health import full_test
 from gpu_link.gpu import GPU
@@ -27,7 +28,11 @@ def run():
                                              threading.Event())
                 if "--stress" in sys.argv:
                     report["stress"] = client.job("run_stress_test", threading.Event(), seconds=30)
-                report["passed"] = report["result"]["ready"]
+                report["cpu"] = client.job("run_cpu_compute", seed=817264, threads=1)
+                report["cpu_verified"] = verify_cpu(report["cpu"], 817264, 1)
+                report["ram"] = client.job("run_ram_test", mib=16)
+                report["resources"] = client.request("get_telemetry")["resources"]
+                report["passed"] = report["result"]["ready"] and report["cpu_verified"] and report["ram"]["passed"]
             finally:
                 client.close()
                 worker.stop()

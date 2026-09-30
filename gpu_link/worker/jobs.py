@@ -1,15 +1,20 @@
-"""Single GPU job queue, bounded retention, cancellation and controller lease."""
+"""Single CPU/RAM/GPU job queue, bounded retention, cancellation and controller lease."""
 
 import threading
 import time
 import uuid
 
 from gpu_link.benchmarks import compute, memory_test, stress
+from gpu_link.benchmarks.cpu import compute_cpu, test_ram
+from gpu_link.worker.resources import Resources
 
 
 class Jobs:
-    def __init__(self, gpu):
+    def __init__(self, gpu, resources=None):
         self.gpu = gpu
+        self.resources = resources or Resources()
+        self.cpu_passed = False
+        self.ram_passed = False
         self.lock = threading.Lock()
         self.cancel = threading.Event()
         self.current = None
@@ -18,15 +23,23 @@ class Jobs:
         self.lease = time.monotonic()
 
     def submit(self, operation, args):
-        if operation == "run_compute_test" and (type(args.get("seed")) is not int or
+        if operation not in {"run_compute_test", "run_memory_test", "run_stress_test", "run_cpu_compute", "run_ram_test"}:
+            raise ValueError("Job operation not allowed")
+        if operation in ("run_compute_test", "run_cpu_compute") and (type(args.get("seed")) is not int or
                 not 0 <= args["seed"] < 2**32):
             raise ValueError("seed must be an unsigned 32-bit integer")
         if operation == "run_stress_test" and (type(args.get("seconds")) is not int or
                 args["seconds"] not in (30, 60, 300)):
             raise ValueError("Stress duration must be 30, 60 or 300 seconds")
+        if operation == "run_cpu_compute":
+            if type(args.get("threads")) is not int or not 1 <= args["threads"] <= self.resources.threads:
+                raise ValueError("Requested CPU threads exceed worker budget")
+        if operation == "run_ram_test":
+            self.resources.check_ram(args.get("mib"))
+        args = dict(args)
         with self.lock:
             if self.current and self.current["status"] == "running":
-                raise ValueError("GPU worker busy")
+                raise ValueError("Worker busy")
             self.cancel.clear()
             self.lease = time.monotonic()
             self.current = {"id": uuid.uuid4().hex, "operation": operation, "status": "running",
@@ -48,6 +61,10 @@ class Jobs:
                 result = compute(args["seed"])
             elif operation == "run_memory_test":
                 result = memory_test()
+            elif operation == "run_cpu_compute":
+                result = compute_cpu(args["seed"], args["threads"], self.cancel)
+            elif operation == "run_ram_test":
+                result = test_ram(args["mib"], self.cancel, self.resources)
             else:
                 result = stress(args["seconds"], self.cancel, self.gpu)
             with self.lock:
@@ -57,9 +74,13 @@ class Jobs:
                     self.completed += 1
                     if operation == "run_compute_test":
                         self.compute_passed = True
+                    elif operation == "run_cpu_compute":
+                        self.cpu_passed = True
+                    elif operation == "run_ram_test":
+                        self.ram_passed = True
         except Exception as exc:
             with self.lock:
-                self.current.update(status="failed", error=str(exc)[:500])
+                self.current.update(status="cancelled" if self.cancel.is_set() else "failed", error=str(exc)[:500])
         finally:
             done.set()
 
@@ -72,5 +93,5 @@ class Jobs:
 
     def summary(self):
         with self.lock:
-            return {"jobs_completed": self.completed, "compute_passed": self.compute_passed, "current_job":
+            return {"cpu_job_completed": self.cpu_passed, "ram_test_passed": self.ram_passed, "jobs_completed": self.completed, "compute_passed": self.compute_passed, "current_job":
                     {k: v for k, v in self.current.items() if k != "result"} if self.current else None}

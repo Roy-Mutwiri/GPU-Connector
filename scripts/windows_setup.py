@@ -172,7 +172,7 @@ def main():
               "Compatibility target: PyTorch 2.11.0 / CUDA 12.8, not the newest untested versions.").pack(anchor="w")
     driver_message = tk.StringVar(value="NVIDIA driver: checking…")
     ttk.Label(frame, textvariable=driver_message, wraplength=680).pack(anchor="w", pady=4)
-    destination = tk.StringVar(value=str(Path(os.environ["LOCALAPPDATA"]) / "Programs" / "GPU Link"))
+    destination = tk.StringVar(value=str(Path(os.environ["LOCALAPPDATA"]) / "Programs" / "GPU Link 1.1"))
     row = ttk.Frame(frame)
     row.pack(fill="x", pady=15)
     field = ttk.Entry(row, textvariable=destination, width=68)

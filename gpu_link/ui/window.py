@@ -7,6 +7,8 @@ import os
 import socket
 import time
 
+import psutil
+
 from PySide6.QtCore import QSettings, QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFrame, QGridLayout,
@@ -105,7 +107,7 @@ class Window(QMainWindow):
         side.addWidget(label("GPU LINK", "title"))
         side.addWidget(label("LAN COMPUTE FABRIC", "subtitle"))
         self.nav = QListWidget()
-        self.nav.addItems(["Dashboard", "Connection", "Benchmark", "Stress Test", "Diagnostics", "Logs", "Settings"])
+        self.nav.addItems(["Dashboard", "Connection", "Benchmark", "Stress Test", "Diagnostics", "Logs", "Settings", "Resources"])
         side.addWidget(self.nav)
         self.mode_label = label("")
         side.addWidget(self.mode_label)
@@ -128,6 +130,7 @@ class Window(QMainWindow):
         self.logs.document().setMaximumBlockCount(2000)
         self.pages.addWidget(self.logs)
         self.build_settings()
+        self.build_resource_page()
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.nav.setCurrentRow(0)
         self.engine.start()
@@ -233,6 +236,20 @@ class Window(QMainWindow):
         work.addWidget(self.interface)
         work.addWidget(self.worker_port)
         work.addWidget(self.discovery_enabled)
+        self.cpu_budget = QSpinBox()
+        self.cpu_budget.setRange(1, psutil.cpu_count() or 1)
+        self.cpu_budget.setValue(int(self.settings.value("cpu_budget", max(1, (psutil.cpu_count() or 1) // 2))))
+        self.ram_budget = QSpinBox()
+        self.ram_budget.setRange(16, 4096)
+        self.ram_budget.setSuffix(" MiB")
+        self.ram_budget.setValue(int(self.settings.value("ram_budget", 256)))
+        budgets = QHBoxLayout()
+        budgets.addWidget(label("CPU job threads:"))
+        budgets.addWidget(self.cpu_budget)
+        budgets.addWidget(label("RAM test allocation limit:"))
+        budgets.addWidget(self.ram_budget)
+        work.addLayout(budgets)
+        work.addWidget(label("Limits apply when START SERVICE is clicked. One job at a time. RAM limit covers test buffers, not total app memory.", "subtitle"))
         row = QHBoxLayout()
         row.addWidget(button("START SERVICE", self.start_worker, True))
         row.addWidget(button("STOP SERVICE", lambda: self.engine.submit("stop_worker")))
@@ -292,13 +309,56 @@ class Window(QMainWindow):
         self.diagnostics.setReadOnly(True)
         page.addWidget(self.diagnostics)
 
+    def build_resource_page(self):
+        page = self.page("Worker resources", "CPU and RAM execute jobs on the worker. Disks are inventory only; resources are not pooled with this PC.")
+        self.resource_info = label("Connect to an updated worker to view its resources.")
+        page.addWidget(self.resource_info)
+        self.cpu_trace = Trace("CPU utilization", "%", "#8ce6af", 100)
+        self.ram_trace = Trace("System RAM used", "GiB", "#80bfff")
+        page.addWidget(self.cpu_trace)
+        page.addWidget(self.ram_trace)
+        row = QHBoxLayout()
+        self.cpu_request = QSpinBox()
+        self.cpu_request.setRange(1, 1)
+        row.addWidget(label("CPU job threads:"))
+        row.addWidget(self.cpu_request)
+        row.addWidget(button("VERIFY CPU COMPUTE", lambda: self.run_test("cpu"), True))
+        self.ram_request = QSpinBox()
+        self.ram_request.setRange(16, 16)
+        self.ram_request.setSuffix(" MiB")
+        row.addWidget(self.ram_request)
+        row.addWidget(button("TEST SYSTEM RAM", lambda: self.run_test("ram")))
+        row.addWidget(button("STOP", self.stop_test))
+        page.addLayout(row)
+        self.resource_result = label("NOT TESTED - CPU verification is separate from CUDA verification.")
+        page.addWidget(self.resource_result)
+        page.addWidget(label("CPU test runs a deterministic parallel hash computation. RAM test writes and reads test buffers; it is not a full hardware memory diagnostic. Configure budgets on the worker's Connection page.", "subtitle"))
+        page.addStretch()
+
+    def show_resources(self, info):
+        if not info:
+            self.resource_info.setText("Resource telemetry unavailable. Update GPU Link on the worker.")
+            return
+        self.cpu_request.setMaximum(info["cpu_threads_allowed"])
+        self.ram_request.setMaximum(info["ram_test_mib_allowed"])
+        usage = info.get("cpu_percent")
+        used = "Sampling" if usage is None else f"{usage:.1f}%"
+        disks = " | ".join(f"{d['mount']} {gb(d['free'])} free / {gb(d['total'])}" for d in info["disks"])
+        self.resource_info.setText(
+            f"{info['cpu_name']}\n{info['physical_cores']} physical cores / {info['logical_processors']} logical processors - CPU {used}\n"
+            f"RAM {gb(info['ram_used'])} used / {gb(info['ram_total'])} total / {gb(info['ram_available'])} available\n"
+            f"Worker limits: {info['cpu_threads_allowed']} CPU threads, {info['ram_test_mib_allowed']} MiB RAM test buffer\n"
+            f"GPU Link process RAM: {gb(info['app_rss'])}\nDisks: {disks or 'Unavailable'}")
+        self.cpu_trace.add(usage)
+        self.ram_trace.add(info["ram_used"] / 1024**3)
+
     def build_settings(self):
         page = self.page("Settings", "Mode is remembered on this Windows account. Credentials are never written to logs.")
         self.mode_choice = QComboBox()
         self.mode_choice.addItems(["MAIN / CONTROLLER", "GPU WORKER"])
         page.addWidget(self.mode_choice)
         page.addWidget(button("APPLY MODE", lambda: self.apply_mode("worker" if self.mode_choice.currentIndex() else "controller")))
-        page.addWidget(label("Worker secrets and private key are protected by Windows DPAPI for your account. Controller secrets stay in memory; import them again after restart.\n\nOne worker executes one GPU job at a time on CUDA device 0. No shell commands, file paths, or executable code can be submitted.\n\nKeep both PCs on a trusted Private LAN. Never forward these ports on your router.", "subtitle"))
+        page.addWidget(label("Worker secrets and private key are protected by Windows DPAPI for your account. Controller secrets stay in memory; import them again after restart.\n\nOne worker executes one CPU, RAM or GPU job at a time. GPU jobs use CUDA device 0. No shell commands, file paths, or executable code can be submitted.\n\nKeep both PCs on a trusted Private LAN. Never forward these ports on your router.", "subtitle"))
         page.addStretch()
 
     def first_run(self):
@@ -344,7 +404,11 @@ class Window(QMainWindow):
             self.handle("error", "No private LAN IPv4 interface. Connect Ethernet/Wi-Fi and restart GPU Link.")
             return
         self.settings.setValue("worker_port", self.worker_port.value())
-        self.engine.submit("start_worker", host=ip, port=self.worker_port.value(), discovery=self.discovery_enabled.isChecked())
+        self.settings.setValue("cpu_budget", self.cpu_budget.value())
+        self.settings.setValue("ram_budget", self.ram_budget.value())
+        self.engine.submit("start_worker", host=ip, port=self.worker_port.value(),
+                           discovery=self.discovery_enabled.isChecked(), cpu_threads=self.cpu_budget.value(),
+                           ram_mib=self.ram_budget.value())
 
     def import_connection(self):
         try:
@@ -422,10 +486,12 @@ class Window(QMainWindow):
         if self.task and self.task.isRunning():
             self.log("A test is already running.")
             return
-        self.task = TestTask(dict(self.credentials), kind, seconds)
+        self.task = TestTask(dict(self.credentials), kind, seconds, self.cpu_request.value(), self.ram_request.value())
         self.task.event.connect(self.handle)
         self.task.start()
-        self.nav.setCurrentRow(3 if kind == "stress" else 2)
+        self.nav.setCurrentRow(7 if kind in ("cpu", "ram") else 3 if kind == "stress" else 2)
+        if kind in ("cpu", "ram"):
+            self.resource_result.setText(f"RUNNING {kind.upper()} test on worker")
         self.stress_status.setText(f"RUNNING — {seconds} seconds" if kind == "stress" else "Telemetry active")
         if kind == "full":
             self.verified = False
@@ -457,6 +523,13 @@ class Window(QMainWindow):
             self.remote_label.setText(self.remote_system + gpu_text(self.remote))
             self.log(f"Authenticated worker {value['hostname']} at {value['ip']}:{value['port']}")
             self.remote_label.setToolTip(f"{value['hostname']} — {value['ip']}:{value['port']}")
+        elif kind in ("cpu_result", "ram_result"):
+            if kind == "cpu_result":
+                text = f"CPU COMPUTE PASS - {value['threads']} threads, {value['seconds']:.3f}s; all results independently verified"
+            else:
+                text = f"RAM TEST PASS - {gb(value['bytes'])} written and checked with two patterns in {value['seconds']:.3f}s (worker-reported)"
+            self.resource_result.setText(text)
+            self.log(text)
         elif kind == "latency":
             self.network_label.setText(f"Heartbeat RTT  {value:.2f} ms\n" + (self.network_summary if hasattr(self, "network_summary") else "Bandwidth not measured"))
         elif kind == "status":
@@ -530,6 +603,7 @@ class Window(QMainWindow):
             self.log(f"ATTENTION: {value}")
             self.status.setText(f"ATTENTION — {value}")
             if kind == "test_error":
+                self.resource_result.setText(f"STOPPED - {value}")
                 self.stress_status.setText(f"STOPPED — {value}")
                 for row in range(self.tests.rowCount()):
                     if self.tests.item(row, 1).text() == "WAITING":
@@ -538,6 +612,10 @@ class Window(QMainWindow):
             self.log(value)
         elif kind == "test_done":
             self.log("Test finished")
+        if kind in ("remote_telemetry", "worker_telemetry"):
+            self.show_resources(value.get("resources"))
+        elif kind == "status" and not self.connected:
+            self.resource_info.setText("No live resource telemetry - connect to a worker or start the worker service.")
         local = next(iter(self.local.get("gpus", [])), {}).get("total")
         remote = next(iter(self.remote.get("gpus", [])), {}).get("total") if self.connected else None
         local_uuid = next(iter(self.local.get("gpus", [])), {}).get("uuid")

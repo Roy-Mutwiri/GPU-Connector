@@ -1,12 +1,14 @@
 """Long-lived service thread and finite tasks; no networking on the GUI thread."""
 
 import queue
+import secrets
 import threading
 import time
 
 from PySide6.QtCore import QThread, Signal
 
 from gpu_link.controller import Client, backoff
+from gpu_link.benchmarks.cpu import verify_cpu
 from gpu_link.controller.health import full_test, network_test
 from gpu_link.diagnostics import diagnose
 from gpu_link.gpu import GPU
@@ -127,9 +129,10 @@ class Engine(QThread):
 class TestTask(QThread):
     event = Signal(str, object)
 
-    def __init__(self, credentials, kind, seconds=30):
+    def __init__(self, credentials, kind, seconds=30, threads=1, ram_mib=16):
         super().__init__()
         self.credentials, self.kind, self.seconds = credentials, kind, seconds
+        self.threads, self.ram_mib = threads, ram_mib
         self.cancel = threading.Event()
 
     def run(self):
@@ -146,6 +149,24 @@ class TestTask(QThread):
                 client.connect()
                 if self.kind == "network":
                     self.event.emit("network_result", network_test(client, stage, self.cancel))
+                elif self.kind in ("cpu", "ram"):
+                    operation = "run_cpu_compute" if self.kind == "cpu" else "run_ram_test"
+                    capabilities = client.request("get_system_info").get("capabilities", [])
+                    if operation not in capabilities:
+                        raise RuntimeError("Update GPU Link on the worker to use CPU/RAM jobs")
+                    if self.kind == "cpu":
+                        seed = secrets.randbits(32)
+                        result = client.job(operation, self.cancel, progress, seed=seed, threads=self.threads)
+                        if not verify_cpu(result, seed, self.threads, self.cancel):
+                            raise RuntimeError("CPU result verification failed")
+                        self.event.emit("cpu_result", result)
+                    else:
+                        result = client.job(operation, self.cancel, progress, mib=self.ram_mib)
+                        if (result.get("passed") is not True or result.get("backend") != "cpu"
+                                or result.get("bytes") != self.ram_mib * 1024**2
+                                or result.get("patterns") != [0x55, 0xAA]):
+                            raise RuntimeError("RAM test returned an invalid result")
+                        self.event.emit("ram_result", result)
                 else:
                     result = client.job("run_stress_test", self.cancel, progress, seconds=self.seconds)
                     self.event.emit("stress_result", result)

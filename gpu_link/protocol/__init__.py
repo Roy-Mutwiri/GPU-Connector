@@ -9,7 +9,7 @@ MAX_JSON = 1024 * 1024
 MAX_BINARY = 256 * 1024 * 1024
 CHUNK = 256 * 1024
 OPERATIONS = frozenset({"heartbeat", "get_system_info", "get_gpu_info", "get_telemetry",
-    "run_compute_test", "run_memory_test", "run_stress_test", "get_job", "stop_job",
+    "run_cpu_compute", "run_ram_test", "run_compute_test", "run_memory_test", "run_stress_test", "get_job", "stop_job",
     "network_upload_test", "network_download_test"})
 
 
